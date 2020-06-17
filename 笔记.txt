@@ -1,0 +1,168 @@
+进程管理
+	
+进程概述
+	进程与程序
+	程序是静态的文件,进程是CUP对该静态文件的动态执行
+	进程由用户空间内存和内核数据结构组成
+		用户空间包含了程序代码及使用的变量
+		内核数据结构用以维护进程运行的状态
+
+进程标识符	PID  
+父子进程
+	整个系统形成一个进程关系树
+特殊进程
+	pid=0	idle进程    	       内核启动的第一个进程
+	pid=1   init进程		        所有进程的祖先
+	pid=2   kthreadd进程	引导后台进程的进程
+进程状态
+	运行态		
+	可中断睡眠态	
+	不可中断睡眠态
+	暂停态		
+	僵尸态...
+	可以通过ps a命令及man ps 查看进程状态
+PROCESS STATE CODES
+   Here are the different values that the s, stat and state output specifiers (header "STAT" or "S") will display to describe
+   the state of a process:
+
+	   D    uninterruptible sleep (usually IO)
+	   R    running or runnable (on run queue)
+	   S    interruptible sleep (waiting for an event to complete)
+	   T    stopped by job control signal
+	   t    stopped by debugger during the tracing
+	   W    paging (not valid since the 2.6.xx kernel)
+	   X    dead (should never be seen)
+	   Z    defunct ("zombie") process, terminated but not reaped by its parent
+
+   For BSD formats and when the stat keyword is used, additional characters may be displayed:
+
+	   <    high-priority (not nice to other users)
+	   N    low-priority (nice to other users)
+	   L    has pages locked into memory (for real-time and custom IO)
+	   s    is a session leader
+	   l    is multi-threaded (using CLONE_THREAD, like NPTL pthreads do)
+	   +    is in the foreground process group	
+	   
+C进程内存布局
+	text	正文段/文本段/代码段
+		cpu执行的机器指令部分,只读,能被多个进程共享 
+		文字常量区也放在代码段,只读
+	data	初始化数据段
+		显式初始化的全局变量和静态变量,程序加载到内存时从可执行文件中读取变量值
+	bss	未初始化数据段
+		未显式初始化的全局变量和静态变量,磁盘中不保存,加载时系统初始化为0
+	栈	运行时局部变量
+	堆	运行时动态内存分配区域
+
+内核通过进程控制块PCB对进程进行组织
+
+进程环境表
+	进程启动时会收到同shell的环境变量表  
+	全局变量extern char **environ指向该环境表
+	相关函数 getenv/setenv/unsetenv/clearenv/putenv
+	
+#include <stdio.h>
+#include <stdlib.h>
+extern char **environ;
+
+int main(int argc, char const *argv[]){
+    char **envir=environ;
+    while(*envir)   {
+        fprintf(stdout,"%s\n",*envir);
+        envir++;
+    }
+    printf("PATH : %s\n", getenv("PATH"));
+    return 0;
+}
+
+API	
+	getpid()		获得自身pid
+	getppid()		获得父进程pid
+
+#include <stdio.h>
+int main()
+{
+    printf("self pid:%d, father pid:%d\n",getpid(),getppid());
+    printf("before Return, run ps -al and ps u \n");
+    getchar();
+    return 0;
+}
+
+在本进程中建立!!shell子进程!!去执行另一个程序
+	system()
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/types.h>
+#include <unistd.h>   
+#define SIZE 80
+
+int main(int argc, char const *argv[]){
+    printf("main:pid=%d\n", getpid());
+    char *cmd=malloc(SIZE);
+    for (int i=1;i<argc;i++){
+        strncat(cmd,argv[i],strlen(argv[i]));
+        strncat(cmd," ",1);
+    }
+    printf("shell command:%s\n",cmd);
+    system(cmd);
+    free(cmd);    return 0;
+}
+//运行 ./a.out ps -ef 确认父子进程关系
+//运行 ./a.out echo \$$ 确认父子进程关系
+
+
+用指定程序!!替换!!当前进程	exec*()
+	int execl(const char *path, ...
+    int execlp(const char *file,...
+    int execle(const char *path,...
+    int execv(const char *path, ...
+    int execvp(const char *file,...
+    int execvpe(const char *file...
+	上述exec系列函数本质上都是通过execve实现
+	
+#include <stdio.h>
+#include <sys/types.h>
+#include <unistd.h>
+
+int main(int argc, char const *argv[]){
+    printf("main_pid=%d\n",getpid());
+    execl("/bin/ps","ps","a",NULL);
+    return 0;
+}
+
+fork()	
+	创建子进程,
+		子进程拷贝父进程的:数据段,堆,栈
+		子进程共享父进程的正文段(只读)
+	一次调用二次返回
+		子进程中返回0
+		父进程中返回子进程pid
+		失败返回-1,具体错误见errno
+		采用写时复制(Copy-On-Write,COW)技术优化
+
+#include <stdio.h>
+#include <sys/types.h>
+#include <unistd.h>
+
+int main(int argc, char const *argv[]){
+    int i=111;
+    printf("1 - %d@%p\n",i,&i);
+    
+    pid_t child=fork();
+    if(child == 0){
+        printf("2 - %d@%p\n",i,&i);
+        i=222;
+        printf("2 - %d@%p\n",i,&i);
+    }else{
+        sleep(2);
+        printf("1 - %d@%p\n",i,&i);
+    }
+
+    printf("bye ... pid=%d\n",getpid() );
+    getchar();
+    return 0;
+}
+
+	
